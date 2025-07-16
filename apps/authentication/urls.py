@@ -13,7 +13,7 @@ from .views import (
 )
 
 urlpatterns = [
-    path("update_user/", UpdateUserInformationView.as_view()),
+    path("update/", UpdateUserInformationView.as_view()),
     path(
         "generate_qr_code/",
         GenerateQRCodeView.as_view(),

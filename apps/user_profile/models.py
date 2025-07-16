@@ -73,8 +73,11 @@ def create_user_profile(sender, instance, created, **kwargs):
     Crea un perfil de usuario automáticamente cuando se crea un usuario.
     """
     if created:
+        # Creamos el UserProfile vacío
         profile = UserProfile.objects.create(user=instance)
-        profile_picture = Media.objects.get_or_create(
+
+        # Obtenemos o creamos la Media para el profile_picture
+        profile_pic_obj, _ = Media.objects.get_or_create(
             key="media/profiles/default/user_default_profile.png",
             defaults={
                 "order": 1,
@@ -84,7 +87,9 @@ def create_user_profile(sender, instance, created, **kwargs):
                 "media_type": "image",
             },
         )
-        banner_picture, _ = Media.objects.get_or_create(
+
+        # Obtenemos o creamos la Media para el banner_picture
+        banner_pic_obj, _ = Media.objects.get_or_create(
             key="media/profiles/default/user_default_banner.jpg",
             defaults={
                 "order": 1,
@@ -94,6 +99,8 @@ def create_user_profile(sender, instance, created, **kwargs):
                 "media_type": "image",
             },
         )
-        profile.profile_picture = profile_picture
-        profile.banner_picture = banner_picture
+
+        # Asignamos correctamente las instancias de Media
+        profile.profile_picture = profile_pic_obj
+        profile.banner_picture = banner_pic_obj
         profile.save()

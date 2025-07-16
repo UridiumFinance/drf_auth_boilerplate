@@ -21,33 +21,29 @@ import qrcode
 from core.storage_backends import PublicMediaStorage
 from core.permissions import HasValidAPIKey
 from utils.ip_utils import get_client_ip
-from utils.string_utils import sanitize_string, sanitize_username
 from apps.assets.models import Media
 from apps.assets.serializers import MediaSerializer
+from .serializers import UpdateUserSerializer
 
 User = get_user_model()
 
 
 class UpdateUserInformationView(StandardAPIView):
+    """
+    PUT /api/users/me/
+    Permite al usuario autenticado actualizar username, first_name y last_name.
+    """
+
     permission_classes = [permissions.IsAuthenticated, HasValidAPIKey]
+    serializer_class   = UpdateUserSerializer
 
-    def put(self, request):
+    def put(self, request, *args, **kwargs):
         user = request.user
-
-        username = request.data.get("username", None)
-        first_name = request.data.get("first_name", None)
-        last_name = request.data.get("last_name", None)
-
-        if username:
-            user.username = sanitize_username(username)
-        if first_name:
-            user.first_name = sanitize_string(first_name)
-        if last_name:
-            user.last_name = sanitize_string(last_name)
-
-        user.save()
-
-        return self.response("User information updated successfully")
+        # partial=True permite enviar sólo subset de campos
+        serializer = self.get_serializer(user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return self.response(serializer.data, status=status.HTTP_200_OK)
     
 
 class GenerateQRCodeView(StandardAPIView):
@@ -207,28 +203,23 @@ class OTPLoginView(StandardAPIView):
 
         if not email or not otp_code:
             return self.error("Both email and OTP code are required.")
-        
+
         try:
-            user = User.objects.get(email=email)
-            
-            # Verificar que el OTP es válido
-            totp = pyotp.TOTP(user.otp_base32)
-            if not totp.verify(otp_code):
-                return self.error("Invalid OTP code.")
-            
-            # Actualizar el estado del OTP
-            user.login_otp_used = True
-            user.save()
-
-            # Generar tokens JWT
-            refresh = RefreshToken.for_user(user)
-            return self.response({
-                "access": str(refresh.access_token), 
-                "refresh": str(refresh)
-            })
-
+            user = User.objects.get(email=email, is_active=True)
         except User.DoesNotExist:
-            return self.response("User does not exist.", status=status.HTTP_404_NOT_FOUND)
+            return self.error("User does not exist or is not active.", status=status.HTTP_404_NOT_FOUND)
+
+        # Verifica con el mismo secreto usado en SendOTPLoginView
+        totp = pyotp.TOTP(user.otp_secret)
+        if not totp.verify(otp_code, valid_window=1):
+            return self.error("Invalid or expired OTP code.")
+
+        # Marcar OTP como usado si lo deseas, o generar uno nuevo
+        refresh = RefreshToken.for_user(user)
+        return self.response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh)
+        })
         
 
 class SendOTPLoginView(StandardAPIView):
@@ -295,3 +286,4 @@ class VerifyOTPLoginView(StandardAPIView):
             })
 
         return self.error("Error verifying OTP code.")
+

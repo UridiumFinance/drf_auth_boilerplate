@@ -1,7 +1,7 @@
 services:
     # Django
-    django_ecommerce:
-        container_name: django_ecommerce
+    django_auth:
+        container_name: django_auth
         build: .
         command: uvicorn core.asgi:application --host 0.0.0.0 --port 8000 --reload
         volumes:
@@ -9,20 +9,20 @@ services:
         ports:
             - 8000:8000
         depends_on:
-            - ecommerce_redis
-            - ecommerce_db
+            - auth_redis
+            - auth_db
     
     # Redis
-    ecommerce_redis:
+    auth_redis:
         image: redis
-        container_name: ecommerce_redis
+        container_name: auth_redis
         ports:
             - 6379:6380
     
     # Database
-    ecommerce_db:
+    auth_db:
         image: postgres
-        container_name: ecommerce_db
+        container_name: auth_db
         restart: always
         environment:
             POSTGRES_DB: django_db

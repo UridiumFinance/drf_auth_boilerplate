@@ -5,8 +5,8 @@ from apps.assets.serializers import MediaSerializer
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    profile_picture = MediaSerializer()
-    banner_picture = MediaSerializer()
+    profile_picture     = serializers.SerializerMethodField()
+    banner_picture      = serializers.SerializerMethodField()
     class Meta:
         model = UserProfile
         fields = [
@@ -24,3 +24,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'github',
             'gitlab',
         ]
+    
+    def get_profile_picture(self, obj):
+        if obj and obj.profile_picture:
+            return MediaSerializer(obj.profile_picture).data.get("url")
+        return None
+    
+    def get_banner_picture(self, obj):
+        if obj and obj.banner_picture:
+            return MediaSerializer(obj.banner_picture).data.get("url")
+        return None
