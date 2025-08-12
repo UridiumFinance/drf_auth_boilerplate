@@ -29,6 +29,6 @@ services:
             POSTGRES_USER: django
             POSTGRES_PASSWORD: postgres
         ports:
-            - 5432:5432
+            - 5434:5434
         volumes:
             - .dbdata:/var/lib/postgresql

@@ -16,6 +16,7 @@ from django.core.mail import send_mail
 from django.contrib.sites.models import Site
 
 import pyotp
+import time
 import qrcode
 
 from core.storage_backends import PublicMediaStorage
@@ -27,6 +28,8 @@ from .serializers import UpdateUserSerializer
 
 User = get_user_model()
 
+TOTP_INTERVAL = 300        # 30–120s según UX
+TOTP_VALID_WINDOW = 1     # acepta ±1 ventana
 
 class UpdateUserInformationView(StandardAPIView):
     """
@@ -221,69 +224,82 @@ class OTPLoginView(StandardAPIView):
             "refresh": str(refresh)
         })
         
-
+        
 class SendOTPLoginView(StandardAPIView):
     permission_classes = [HasValidAPIKey]
 
     def post(self, request):
-        email = request.data.get('email')
+        email = (request.data.get("email") or "").strip().lower()
+        if not email:
+            return self.error("Email is required.")
 
-        # Verificar que existe un suario con ese email y que eestaa activo
         try:
             user = User.objects.get(email=email, is_active=True)
         except User.DoesNotExist:
             return self.error("User does not exist or is not active.")
-        
-        # Generar OTP
-        secret = pyotp.random_base32()
-        user.otp_secret = secret
-        user.save()
 
-        totp = pyotp.TOTP(secret)
-        otp = totp.now()
+        # Crear el secreto SOLO si no existe (secreto estable por usuario)
+        if not getattr(user, "otp_secret", None):
+            user.otp_secret = pyotp.random_base32()
+            user.save(update_fields=["otp_secret"])
 
-        # Enviar correo con OTP
-        # Obtener el dominio del sitio configurado
-        site = Site.objects.get_current()
-        domain = site.domain
+        # Generar OTP para el momento actual (aware)
+        now = timezone.now()
+        totp = pyotp.TOTP(user.otp_secret, interval=TOTP_INTERVAL, digits=6)
+        otp = totp.at(now)  # equivalente a totp.now() pero con tz
 
+        # Enviar correo
+        domain = Site.objects.get_current().domain
         send_mail(
-            'Your OTP Code',
-            f'Your OTP code is {otp}',
-            f'no-reply@{domain}',
-            [email],
+            subject="Your OTP Code",
+            message=f"Your OTP code is {otp}",
+            from_email=f"no-reply@{domain}",
+            recipient_list=[email],
             fail_silently=False,
         )
 
         return self.response("OTP sent successfully.")
-    
+
 
 class VerifyOTPLoginView(StandardAPIView):
     permission_classes = [HasValidAPIKey]
 
     def post(self, request):
-        email = request.data.get('email')
-        otp_code = request.data.get('otp')
+        email = (request.data.get("email") or "").strip().lower()
+        otp_code = str((request.data.get("otp") or "")).strip()
 
         if not email or not otp_code:
             return self.error("Both email and OTP code are required.")
 
-        # Verificar que existe un usuario con ese email y que esta activo
         try:
             user = User.objects.get(email=email, is_active=True)
         except User.DoesNotExist:
             return self.error("User does not exist or is not active.")
-        
-        # Generar OTP
-        totp = pyotp.TOTP(user.otp_secret)
 
-        if totp.verify(otp_code):
-            # Generar tokens JWT
+        if not getattr(user, "otp_secret", None):
+            return self.error("No OTP secret registered for this user.")
+
+        now = timezone.now()
+        totp = pyotp.TOTP(user.otp_secret, interval=TOTP_INTERVAL, digits=6)
+
+        # (Opcional) Anti-reuso: solo si el modelo tiene el campo otp_last_counter
+        anti_reuse_enabled = hasattr(user, "otp_last_counter")
+        if anti_reuse_enabled:
+            current_counter = totp.timecode(now)
+            last_counter = getattr(user, "otp_last_counter", None)
+            if last_counter is not None and current_counter <= last_counter:
+                return self.error("OTP already used.")
+
+        # Verificación con tolerancia de ventana y tiempo aware
+        if totp.verify(otp_code, valid_window=TOTP_VALID_WINDOW, for_time=now):
+            if anti_reuse_enabled:
+                user.otp_last_counter = totp.timecode(now)
+                user.save(update_fields=["otp_last_counter"])
+
             refresh = RefreshToken.for_user(user)
             return self.response({
-                "access": str(refresh.access_token), 
-                "refresh": str(refresh)
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             })
 
-        return self.error("Error verifying OTP code.")
-
+        return self.error("Invalid or expired OTP.")

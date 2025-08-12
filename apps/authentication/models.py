@@ -88,6 +88,7 @@ class UserAccount(AbstractBaseUser, PermissionsMixin):
     otpauth_url = models.CharField(max_length=225, blank=True, null=True)
     otp_base32 = models.CharField(max_length=255, null=True)
     otp_secret = models.CharField(max_length=255, null=True)
+    otp_last_counter = models.BigIntegerField(null=True, blank=True)
 
     # qr_code = models.ImageField(upload_to="qrcode/", blank=True, null=True)
     qr_code = models.ForeignKey(
