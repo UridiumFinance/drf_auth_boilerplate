@@ -1,28 +1,265 @@
-{% load i18n %}
+{% load i18n %} {# ===================== SUBJECT ===================== #} {%
+block subject %} {% blocktrans %}Activate your {{ site_name }} account{%
+endblocktrans %} {% endblock subject %} {# ===================== TEXT BODY
+(fallback) ===================== #} {% block text_body %} {% blocktrans %}You're
+receiving this email because you started the activation process on {{ site_name
+}}.{% endblocktrans %} {% trans "To activate your account, open this link:" %}
+{{ protocol }}://{{ domain }}/{{ url|safe }} {% trans "If you didn’t request
+this, you can safely ignore this email." %} {% if support_email %}{% blocktrans
+%}Need help? Contact us at {{ support_email }}.{% endblocktrans %}{% endif %} {%
+blocktrans %}The {{ site_name }} team{% endblocktrans %} {% endblock text_body
+%} {# ===================== HTML BODY ===================== #} {% block
+html_body %}
+<!DOCTYPE html>
+<html
+  lang="{% get_current_language as LANGUAGE_CODE %}{{ LANGUAGE_CODE|default:'en' }}"
+>
+  <head>
+    <meta charset="utf-8" />
+    <title>
+      {% blocktrans %}Activate your {{ site_name }} account{% endblocktrans %}
+    </title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    {# Preheader (hidden in most clients) #}
+    <style>
+      .preheader {
+        display: none !important;
+        visibility: hidden;
+        opacity: 0;
+        color: transparent;
+        height: 0;
+        width: 0;
+        overflow: hidden;
+        mso-hide: all;
+      }
+      @media (prefers-color-scheme: dark) {
+        body,
+        .wrapper {
+          background: #0b0b0b !important;
+          color: #f3f3f3 !important;
+        }
+        .card {
+          background: #151515 !important;
+          border-color: #222 !important;
+        }
+        .btn {
+          background: #e11d48 !important;
+          color: #ffffff !important;
+        }
+        a {
+          color: #93c5fd !important;
+        }
+      }
+      .btn:hover {
+        filter: brightness(0.95);
+      }
+      .link {
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #f6f7fb;
+      color: #111;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+        sans-serif;
+    "
+  >
+    <span class="preheader">
+      {% blocktrans %}Finish activating your {{ site_name }} account.{%
+      endblocktrans %}
+    </span>
 
-{% block subject %}
-{% blocktrans %}Account activation on {{ site_name }}{% endblocktrans %}
-{% endblock subject %}
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      style="padding: 24px 0"
+    >
+      <tr>
+        <td align="center">
+          <table
+            class="wrapper"
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            style="max-width: 600px; margin: 0 auto"
+          >
+            <tr>
+              <td style="padding: 0 24px">
+                {# Header / Logo #}
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  style="margin-bottom: 16px"
+                >
+                  <tr>
+                    <td align="left" style="padding: 8px 0">
+                      {% if logo_url %}
+                      <img
+                        src="{{ logo_url }}"
+                        alt="{{ site_name }}"
+                        height="36"
+                        style="display: block; height: 36px; width: auto"
+                      />
+                      {% else %}
+                      <strong style="font-size: 18px">{{ site_name }}</strong>
+                      {% endif %}
+                    </td>
+                  </tr>
+                </table>
 
-{% block text_body %}
-{% blocktrans %}You're receiving this email because you need to finish activation process on {{ site_name }}.{% endblocktrans %}
+                {# Card #}
+                <table
+                  class="card"
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  style="
+                    background: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 12px;
+                    overflow: hidden;
+                  "
+                >
+                  <tr>
+                    <td style="padding: 24px">
+                      <h1
+                        style="
+                          margin: 0 0 8px;
+                          font-size: 20px;
+                          line-height: 1.3;
+                        "
+                      >
+                        {% blocktrans %}Confirm your email to activate your
+                        account{% endblocktrans %}
+                      </h1>
+                      <p
+                        style="
+                          margin: 0 0 16px;
+                          font-size: 14px;
+                          line-height: 1.6;
+                        "
+                      >
+                        {% blocktrans %}You're receiving this email because you
+                        need to finish the activation process on {{ site_name
+                        }}.{% endblocktrans %}
+                      </p>
 
-{% trans "Please go to the following page to activate account:" %}
-{{ protocol }}://{{ domain }}/{{ url|safe }}
+                      {# Primary button #}
+                      <table
+                        role="presentation"
+                        cellspacing="0"
+                        cellpadding="0"
+                        style="margin: 16px 0 8px"
+                      >
+                        <tr>
+                          <td>
+                            <a
+                              class="btn"
+                              href="{{ protocol }}://{{ domain }}/{{ url|safe }}"
+                              style="
+                                display: inline-block;
+                                background: #ef4444;
+                                color: #fff;
+                                text-decoration: none;
+                                padding: 12px 18px;
+                                border-radius: 8px;
+                                font-weight: 600;
+                              "
+                            >
+                              {% trans "Activate account" %}
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
 
-{% trans "Thanks for using our site!" %}
+                      {# Fallback link #}
+                      <p
+                        style="
+                          margin: 8px 0 0;
+                          font-size: 12px;
+                          color: #6b7280;
+                          line-height: 1.6;
+                        "
+                      >
+                        {% trans "Or copy and paste this URL into your browser:"
+                        %}
+                        <br />
+                        <a
+                          class="link"
+                          href="{{ protocol }}://{{ domain }}/{{ url|safe }}"
+                          style="color: #2563eb; text-decoration: underline"
+                        >
+                          {{ protocol }}://{{ domain }}/{{ url|safe }}
+                        </a>
+                      </p>
 
-{% blocktrans %}The {{ site_name }} team{% endblocktrans %}
-{% endblock text_body %}
+                      {# Security / help #}
+                      <hr
+                        style="
+                          border: none;
+                          border-top: 1px solid #e5e7eb;
+                          margin: 20px 0;
+                        "
+                      />
+                      <p
+                        style="
+                          margin: 0 0 8px;
+                          font-size: 12px;
+                          color: #6b7280;
+                          line-height: 1.6;
+                        "
+                      >
+                        {% trans "If you didn’t sign up for this account, you
+                        can safely ignore this email." %}
+                      </p>
+                      {% if support_email %}
+                      <p style="margin: 0; font-size: 12px; color: #6b7280">
+                        {% blocktrans %}Need help? Contact us at {{
+                        support_email }}.{% endblocktrans %}
+                      </p>
+                      {% endif %}
+                    </td>
+                  </tr>
+                </table>
 
-{% block html_body %}
-<p>{% blocktrans %}You're receiving this email because you need to finish activation process on {{ site_name }}.{% endblocktrans %}</p>
-
-<p>{% trans "Please go to the following page to activate account:" %}</p>
-<p><a href="{{ protocol }}://{{ domain }}/{{ url|safe }}">{{ protocol }}://{{ domain }}/{{ url|safe }}</a></p>
-
-<p>{% trans "Thanks for using our site!" %}</p>
-
-<p>{% blocktrans %}The {{ site_name }} team{% endblocktrans %}</p>
-
+                {# Footer #}
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  style="margin-top: 16px"
+                >
+                  <tr>
+                    <td style="padding: 8px 0">
+                      <p
+                        style="margin: 0 0 4px; font-size: 12px; color: #9ca3af"
+                      >
+                        {% trans "Thanks for using our site!" %}
+                      </p>
+                      <p style="margin: 0; font-size: 12px; color: #9ca3af">
+                        {% blocktrans %}The {{ site_name }} team{% endblocktrans
+                        %}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
 {% endblock html_body %}

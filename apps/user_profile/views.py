@@ -1,220 +1,145 @@
-from datetime import datetime, timedelta
-
-from rest_framework import permissions, status
-from rest_framework_api.views import StandardAPIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.contrib.auth import get_user_model
+from datetime import timedelta
+from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from django.utils import timezone
+from django.contrib.auth import get_user_model
+
+from rest_framework import permissions, status
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.generics import RetrieveUpdateAPIView
+from rest_framework_api.views import StandardAPIView
+
 from botocore.signers import CloudFrontSigner
 
 from core.permissions import HasValidAPIKey
-from .models import UserProfile
 from apps.assets.models import Media
 from apps.authentication.serializers import UserPublicSerializer
+from .models import UserProfile
 from .serializers import UserProfileSerializer
 from utils.s3_utils import rsa_signer
-from utils.string_utils import sanitize_string, sanitize_html, sanitize_url
 
 User = get_user_model()
 
+# ------------------------
+# Utilidad: firmar URL
+# ------------------------
+def get_signed_url(key: str, expire_seconds: int = 60) -> str:
+    """Genera un signed URL para un objeto en CloudFront."""
+    if not key:
+        return None
+    key_id = settings.AWS_CLOUDFRONT_KEY_ID
+    signer = CloudFrontSigner(key_id, rsa_signer)
+    expire_date = timezone.now() + timedelta(seconds=expire_seconds)
+    obj_url = f"https://{settings.AWS_CLOUDFRONT_DOMAIN}/{key}"
+    return signer.generate_presigned_url(obj_url, date_less_than=expire_date)
 
-class MyUserProfileView(StandardAPIView):
+
+# ------------------------
+# Perfil propio
+# ------------------------
+class MyUserProfileView(RetrieveUpdateAPIView):
+    """
+    GET: Obtener mi perfil
+    PATCH: Actualizar campos del perfil
+    """
     permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
     authentication_classes = [JWTAuthentication]
+    serializer_class = UserProfileSerializer
 
-    def get(self, request):
-        user = request.user
-        user_profile = UserProfile.objects.get(user=user)
-        serialized_user_profile = UserProfileSerializer(user_profile).data
-        return self.response(serialized_user_profile)
+    def get_object(self):
+        return UserProfile.objects.select_related("profile_picture", "banner_picture").get(user=self.request.user)
 
 
+# ------------------------
+# Perfil público (por username)
+# ------------------------
 class DetailUserProfileView(StandardAPIView):
     permission_classes = [HasValidAPIKey]
 
     def get(self, request):
-        username = request.query_params.get("username", None)
+        username = request.query_params.get("username")
         if not username:
-            return self.error("A valid username must be provided")
-        
+            return self.response("A valid username must be provided", status=status.HTTP_400_BAD_REQUEST)
+
         try:
             user = User.objects.get(username=username)
         except User.DoesNotExist:
             return self.response("User does not exist", status=status.HTTP_404_NOT_FOUND)
 
-        serialized_user = UserPublicSerializer(user).data
-
-        user_profile = UserProfile.objects.get(user=user)
-        serialized_user_profile = UserProfileSerializer(user_profile).data
-
+        profile = UserProfile.objects.get(user=user)
         return self.response({
-            "user":serialized_user,
-            "profile":serialized_user_profile
+            "user": UserPublicSerializer(user).data,
+            "profile": UserProfileSerializer(profile).data,
         })
 
 
-class GetMyProfilePictureView(StandardAPIView):
+# ------------------------
+# Foto/Banner (firmado)
+# ------------------------
+class GetMyMediaView(StandardAPIView):
+    """
+    GET /api/profile/media/?type=profile|banner
+    Devuelve una signed URL de la imagen
+    """
     permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
     authentication_classes = [JWTAuthentication]
 
     def get(self, request):
-        user = request.user
-        profile = UserProfile.objects.get(user=user)
+        media_type = request.query_params.get("type")
+        profile = UserProfile.objects.get(user=request.user)
 
-        # Ensure user exists and has a profile picture
-        if not profile.profile_picture:
-            return self.response(
-                "No profile picture found.", status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Generate a signed URL for secure access if necessary
-        if hasattr(profile.profile_picture, "key"):
-            key_id = settings.AWS_CLOUDFRONT_KEY_ID
-            signer = CloudFrontSigner(key_id, rsa_signer)
-            expire_date = timezone.now() + timedelta(seconds=60)
-            obj_url = f"https://{settings.AWS_CLOUDFRONT_DOMAIN}/{profile.profile_picture.key}"
-            signed_url = signer.generate_presigned_url(
-                obj_url, date_less_than=expire_date
-            )
-            return self.response(signed_url)
-        return self.error('Error fetching image from aws')
+        if media_type == "profile":
+            media = profile.profile_picture
+        elif media_type == "banner":
+            media = profile.banner_picture
+        else:
+            return self.response("Invalid media type", status=status.HTTP_400_BAD_REQUEST)
+
+        if not media or not media.key:
+            return self.response(f"No {media_type} picture found.", status=status.HTTP_404_NOT_FOUND)
+
+        return self.response(get_signed_url(media.key))
 
 
-class GetMyBannerPictureView(StandardAPIView):
-    permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
-    authentication_classes = [JWTAuthentication]
-
-    def get(self, request):
-        user = request.user
-        profile = UserProfile.objects.get(user=user)
-
-        # Ensure user exists and has a banner picture
-        if not profile.banner_picture:
-            return self.response(
-                "No banner picture found.", status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Generate a signed URL for secure access if necessary
-        if hasattr(profile.banner_picture, "key"):
-            key_id = settings.AWS_CLOUDFRONT_KEY_ID
-            signer = CloudFrontSigner(key_id, rsa_signer)
-            expire_date = timezone.now() + timedelta(seconds=60)
-            obj_url = f"https://{settings.AWS_CLOUDFRONT_DOMAIN}/{profile.banner_picture.key}"
-            signed_url = signer.generate_presigned_url(
-                obj_url, date_less_than=expire_date
-            )
-            return self.response(signed_url)
-        return self.error('Error fetching image from aws')
-
-
-class UploadProfilePictureView(StandardAPIView):
+# ------------------------
+# Subida de media
+# ------------------------
+class UploadMediaView(StandardAPIView):
+    """
+    POST /api/profile/upload/?type=profile|banner
+    Guarda un Media y lo asigna al perfil
+    """
     permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
     authentication_classes = [JWTAuthentication]
 
     def post(self, request):
-        user = request.user
-        profile = UserProfile.objects.get(user=user)
+        media_type = request.query_params.get("type")
+        profile = UserProfile.objects.get(user=request.user)
 
         key = request.data.get("key")
         title = request.data.get("title")
         size = request.data.get("size")
         file_type = request.data.get("type")
 
-        profile_picture = Media.objects.create(
+        if not all([key, title, size, file_type]):
+            return self.response("Missing fields.", status=status.HTTP_400_BAD_REQUEST)
+
+        media = Media.objects.create(
+            owner=request.user,
             order=0,
             name=title,
             size=size,
             type=file_type,
             key=key,
-            media_type='image',
+            media_type="image",
         )
 
-        profile.profile_picture = profile_picture
-        profile.save()
+        if media_type == "profile":
+            profile.profile_picture = media
+        elif media_type == "banner":
+            profile.banner_picture = media
+        else:
+            return self.response("Invalid media type", status=status.HTTP_400_BAD_REQUEST)
 
-        return self.response("Profile picture has been updated.")
-
-class UploadBannerPictureView(StandardAPIView):
-    permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
-    authentication_classes = [JWTAuthentication]
-
-    def post(self, request):
-        user = request.user
-        profile = UserProfile.objects.get(user=user)
-
-        key = request.data.get("key")
-        title = request.data.get("title")
-        size = request.data.get("size")
-        file_type = request.data.get("type")
-
-        banner_picture = Media.objects.create(
-            order=0,
-            name=title,
-            size=size,
-            type=file_type,
-            key=key,
-            media_type='image',
-        )
-
-        profile.banner_picture = banner_picture
-        profile.save()
-
-        return self.response("Banner picture has been updated.")
-    
-
-class UpdateUserProfileView(StandardAPIView):
-    permission_classes = [HasValidAPIKey, permissions.IsAuthenticated]
-    authentication_classes = [JWTAuthentication]
-
-    def put(self, request):
-        user = request.user
-        profile = UserProfile.objects.get(user=user)
-        
-        biography = request.data.get("biography", None)
-        birthday = request.data.get("birthday", None)
-        website = request.data.get("website", None)
-        instagram = request.data.get("instagram", None)
-        facebook = request.data.get("facebook", None)
-        threads = request.data.get("threads", None)
-        linkedin = request.data.get("linkedin", None)
-        youtube = request.data.get("youtube", None)
-        tiktok = request.data.get("tiktok", None)
-        github = request.data.get("github", None)
-        gitlab = request.data.get("gitlab", None)
-
-        try:
-            if biography:
-                profile.biography = sanitize_html(biography)
-            if birthday:
-                # Validar y transformar el formato de la fecha
-                try:
-                    formatted_birthday = datetime.strptime(birthday, "%Y-%m-%d").date()
-                    profile.birthday = formatted_birthday
-                except ValueError:
-                    raise ValidationError("Invalid date format. Use YYYY-MM-DD.")
-            if instagram:
-                profile.instagram = sanitize_url(instagram)
-            if facebook:
-                profile.facebook = sanitize_url(facebook)
-            if threads:
-                profile.threads = sanitize_url(threads)
-            if linkedin:
-                profile.linkedin = sanitize_url(linkedin)
-            if youtube:
-                profile.youtube = sanitize_url(youtube)
-            if tiktok:
-                profile.tiktok = sanitize_url(tiktok)
-            if github:
-                profile.github = sanitize_url(github)
-            if gitlab:
-                profile.gitlab = sanitize_url(gitlab)
-            if website:
-                profile.website = sanitize_url(website)
-
-            profile.save()
-
-            return self.response("Profile has been updated successfully.")
-        except ValidationError as e:
-            return self.error(str(e))
+        profile.save(update_fields=["profile_picture", "banner_picture"])
+        return self.response(f"{media_type.capitalize()} picture has been updated.")
